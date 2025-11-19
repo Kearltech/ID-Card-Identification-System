@@ -1,0 +1,12 @@
+# Requirements optimized for Python 3.13
+# Using only packages with Python 3.13 wheel support
+
+streamlit>=1.29.0
+opencv-python-headless>=4.8.1
+numpy>=2.0.0
+Pillow>=10.1.0
+pandas>=2.2.0
+easyocr>=1.7.0
+rapidfuzz>=3.5.0
+python-dotenv>=1.0.0
+piexif>=1.1.3
