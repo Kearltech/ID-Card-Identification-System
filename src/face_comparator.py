@@ -39,8 +39,11 @@ class FaceComparator:
             engine: "face_recognition", "deepface", or "auto"
         """
         self.engine = engine
-        self.face_distance_threshold = 0.6  # Threshold for face_recognition
-        self.similarity_threshold = 0.55  # Threshold for DeepFace
+        # Thresholds
+        # face_recognition uses face distance (lower is more similar)
+        self.face_distance_threshold = 0.55
+        # DeepFace similarity threshold (normalized 0-1)
+        self.deepface_threshold = 0.75
     
     def compare_faces(
         self,
@@ -104,9 +107,27 @@ class FaceComparator:
     ) -> Dict[str, Any]:
         """Compare using face_recognition library."""
         
-        # Convert PIL to numpy arrays
-        portrait_array = np.array(portrait_image)
-        id_card_array = np.array(id_card_portrait)
+        # Convert PIL to numpy arrays and preprocess for encoding
+        def _preprocess_pil_for_encoding(pil_img: Image.Image) -> np.ndarray:
+            # Convert PIL Image to numpy array
+            arr = np.array(pil_img)
+            # If PIL mode is RGB, convert to BGR for OpenCV operations first
+            try:
+                mode = pil_img.mode
+            except Exception:
+                mode = None
+            if mode == 'RGB':
+                arr = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
+
+            # Convert BGR -> RGB (ensure correct color ordering for face_recognition)
+            img = cv2.cvtColor(arr, cv2.COLOR_BGR2RGB)
+            # Resize and blur as requested
+            img = cv2.resize(img, (250, 250))
+            img = cv2.GaussianBlur(img, (3, 3), 0)
+            return img
+
+        portrait_array = _preprocess_pil_for_encoding(portrait_image)
+        id_card_array = _preprocess_pil_for_encoding(id_card_portrait)
         
         try:
             # Encode faces
@@ -123,14 +144,15 @@ class FaceComparator:
                     "details": "Could not detect face in one or both images"
                 }
             
-            # Compare
+            # Compare (face_recognition returns a distance where lower is better)
             distance = face_recognition.face_distance(
                 [portrait_encoding[0]],
                 id_card_encoding[0]
             )[0]
-            
-            similarity = 1 - distance  # Convert distance to similarity
-            match = similarity >= self.similarity_threshold
+
+            # Keep similarity for reporting, but decision uses distance threshold
+            similarity = max(0.0, 1.0 - float(distance))
+            match = distance <= self.face_distance_threshold
             
             return {
                 "match": match,
@@ -162,15 +184,17 @@ class FaceComparator:
         # Save to temporary files (DeepFace prefers file paths)
         import tempfile
         
+        portrait_path = None
+        id_card_path = None
         try:
             with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f1:
                 portrait_image.save(f1.name)
                 portrait_path = f1.name
-            
+
             with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f2:
                 id_card_portrait.save(f2.name)
                 id_card_path = f2.name
-            
+
             # Compare
             result = DeepFace.verify(
                 portrait_path,
@@ -179,26 +203,27 @@ class FaceComparator:
                 enforce_detection=False,
                 silent=True
             )
-            
-            distance = result['distance']
-            match = result['verified']
-            
-            # Normalize distance to similarity (0-1)
-            similarity = 1 - (distance / 100)
-            
-            import os
-            os.unlink(portrait_path)
-            os.unlink(id_card_path)
-            
+
+            distance = result.get('distance', None)
+            # DeepFace distance is typically in roughly 0..1.3 depending on model
+            if distance is None:
+                similarity = 0.0
+            else:
+                # Normalize distance to similarity in [0,1]
+                similarity = max(0.0, 1.0 - float(distance))
+
+            # Apply a stronger threshold for DeepFace
+            match = similarity >= self.deepface_threshold
+
             return {
                 "match": bool(match),
                 "similarity_score": float(max(0, min(1, similarity))),
-                "distance": float(distance),
+                "distance": float(distance) if distance is not None else None,
                 "engine_used": "deepface",
                 "confidence": float(max(0, min(1, similarity))),
-                "details": f"DeepFace verified: {match}, Distance: {distance:.4f}"
+                "details": f"DeepFace verified: {result.get('verified', False)}, Distance: {distance if distance is not None else 'N/A'}"
             }
-        
+
         except Exception as e:
             logger.error(f"DeepFace comparison failed: {e}")
             return {
@@ -209,6 +234,16 @@ class FaceComparator:
                 "confidence": 0.0,
                 "details": f"Error: {str(e)}"
             }
+        finally:
+            # Ensure temporary files are cleaned up
+            try:
+                import os
+                if portrait_path and os.path.exists(portrait_path):
+                    os.unlink(portrait_path)
+                if id_card_path and os.path.exists(id_card_path):
+                    os.unlink(id_card_path)
+            except Exception:
+                pass
     
     def _compare_with_pixel_similarity(
         self,
@@ -234,14 +269,15 @@ class FaceComparator:
             max_mse = 255 ** 2
             similarity = 1 - (mse / max_mse)
             
-            match = similarity >= self.similarity_threshold
-            
+            # For fallback, be conservative: confidence is scaled down (<= 0.2)
+            match = similarity >= self.face_distance_threshold
+
             return {
                 "match": match,
                 "similarity_score": float(similarity),
                 "distance": None,
                 "engine_used": "pixel_similarity",
-                "confidence": float(similarity),
+                "confidence": float(similarity * 0.2),
                 "details": f"Pixel-based similarity: {similarity:.2%} (fallback method)"
             }
         
