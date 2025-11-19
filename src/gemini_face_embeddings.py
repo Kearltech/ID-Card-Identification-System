@@ -48,9 +48,23 @@ class GeminiFaceEmbeddings:
 
         try:
             genai.configure(api_key=key)
-            self.client = genai.GenerativeModel('gemini-1.5-flash-latest')
+            # Try different models in order of preference
+            models_to_try = ['gemini-pro-vision', 'gemini-pro', 'gemini-1.5-pro']
+            self.client = None
+            for model_name in models_to_try:
+                try:
+                    self.client = genai.GenerativeModel(model_name)
+                    logger.info(f"Gemini Vision API initialized with {model_name}")
+                    break
+                except Exception as e:
+                    logger.debug(f"Model {model_name} not available: {e}")
+                    continue
+            
+            if self.client is None:
+                logger.error("No Gemini models available")
+                return
+            
             self.available = True
-            logger.info("Gemini Vision API initialized")
         except Exception as e:
             logger.error(f"Failed to initialize Gemini: {e}")
 
