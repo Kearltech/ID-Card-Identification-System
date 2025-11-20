@@ -355,16 +355,15 @@ class UIVSDatabase:
                 cursor.execute(f"SELECT COUNT(*) FROM {table}")
                 stats[f"{table}_total"] = cursor.fetchone()[0]
             
-            # Count recent verifications
-            cursor.execute("""
-                SELECT COUNT(*) FROM (
-                    SELECT * FROM national_id UNION ALL
-                    SELECT * FROM passport UNION ALL
-                    SELECT * FROM voters_id UNION ALL
-                    SELECT * FROM drivers_license
-                ) WHERE datetime(timestamp) > datetime('now', '-24 hours')
-            """)
-            stats['verifications_24h'] = cursor.fetchone()[0]
+            # Count recent verifications (count each table separately and sum)
+            count_24h = 0
+            for table in ['national_id', 'passport', 'voters_id', 'drivers_license']:
+                cursor.execute(f"""
+                    SELECT COUNT(*) FROM {table} 
+                    WHERE datetime(timestamp) > datetime('now', '-24 hours')
+                """)
+                count_24h += cursor.fetchone()[0]
+            stats['verifications_24h'] = count_24h
             
         finally:
             conn.close()

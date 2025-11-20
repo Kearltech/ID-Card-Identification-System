@@ -32,6 +32,14 @@ try:
     HAVE_LEGACY_COMPARATOR = True
 except ImportError:
     HAVE_LEGACY_COMPARATOR = False
+    
+# Import insightface embeddings (recommended)
+try:
+    from insightface_embeddings import InsightFaceEmbeddings
+    HAVE_INSIGHTFACE_EMBEDDINGS = True
+except ImportError:
+    HAVE_INSIGHTFACE_EMBEDDINGS = False
+    logger.info("InsightFace embeddings not available")
 
 
 class EnhancedFaceComparator:
@@ -65,6 +73,19 @@ class EnhancedFaceComparator:
         if HAVE_LEGACY_COMPARATOR:
             self.legacy_comparator = FaceComparator(engine="auto")
             logger.info("Legacy comparator initialized as fallback")
+        
+        if HAVE_INSIGHTFACE_EMBEDDINGS:
+            # prefer CPU by default (ctx_id=-1) to avoid GPU requirement
+            try:
+                self.insightface = InsightFaceEmbeddings(ctx_id=-1)
+                if self.insightface.available:
+                    logger.info("InsightFace embeddings initialized")
+                else:
+                    self.insightface = None
+            except Exception:
+                self.insightface = None
+        else:
+            self.insightface = None
 
         # Thresholds
         self.gemini_threshold = 0.75
@@ -149,6 +170,35 @@ class EnhancedFaceComparator:
 
             except Exception as e:
                 logger.warning(f"Gemini feature extraction failed: {e}")
+
+        # New: Try InsightFace embeddings (ArcFace) before legacy comparators
+        if self.insightface:
+            try:
+                logger.info("Attempting InsightFace embedding comparison...")
+
+                # If input are PIL Images, use directly
+                emb1 = self.insightface.extract_embedding(portrait_image)
+                emb2 = self.insightface.extract_embedding(id_card_portrait)
+
+                if emb1 is not None and emb2 is not None:
+                    import numpy as _np
+                    dist = float(_np.linalg.norm(emb1 - emb2))
+                    threshold = 1.0
+                    match = dist < threshold
+                    similarity = max(0.0, 1.0 - (dist / threshold))
+
+                    result.update({
+                        'match': bool(match),
+                        'similarity_score': float(similarity),
+                        'engine_used': 'insightface',
+                        'confidence': float(similarity),
+                        'details': f'InsightFace distance: {dist:.4f}'
+                    })
+                    logger.info(f"✓ InsightFace comparison dist={dist:.4f} match={match}")
+                    return result
+
+            except Exception as e:
+                logger.warning(f"InsightFace comparison failed: {e}")
 
         # Tier 3: Legacy comparator (face_recognition, DeepFace, pixel-based)
         if self.legacy_comparator:
