@@ -12,15 +12,19 @@ paddleocr>=2.7.0,<3.0.0
 python-dotenv>=1.0.0,<2.0.0
 piexif>=1.1.3,<2.0.0
 
-# Face detection and embeddings - MediaPipe and Gemini integration
-mediapipe>=0.10.0
+# Face detection and embeddings - Gemini integration
 google-generativeai>=0.3.0
 
 # Face recognition engines (legacy but used as fallback)
 face-recognition>=1.3.5
 deepface>=0.0.75
+
+# InsightFace for industry-grade face matching (ArcFace embeddings)
 insightface>=0.7.3
 onnxruntime>=1.15.0
+
+# Optional: MediaPipe for enhanced face detection (if Python <3.13)
+# mediapipe>=0.10.0  # Not available for Python 3.13 yet
 
 # Development dependencies (install with: pip install -r requirements-dev.txt)
 # pytest>=7.0.0

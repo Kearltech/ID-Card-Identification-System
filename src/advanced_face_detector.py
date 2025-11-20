@@ -17,7 +17,7 @@ try:
     HAVE_MEDIAPIPE = True
 except ImportError:
     HAVE_MEDIAPIPE = False
-    logger.warning("MediaPipe not available")
+    logger.warning("MediaPipe not available (Python 3.13+ not supported yet). Using Haar Cascade fallback.")
 
 
 class AdvancedFaceDetector:
